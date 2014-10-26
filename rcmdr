@@ -1,37 +1,60 @@
-Remote-commander
-================
+#!/bin/bash
 
-## Description
-Rcmdr is a script which runs a single command on multiple computers at the 
-same time over ssh in parallel or one by one. With Zabbix intergration 
-computer groups can be selected from the monitoring database.
+# Remote Commander
+#
+# Rcmdr is a script which runs a single command on multiple computers at the 
+# same time over ssh in parallel or one by one. With Zabbix intergration 
+# computer groups can be selected from the monitoring database.
 
-## Requires
-- mysql command line client
-- ssh client
-- zabbix (www.zabbix.com) database access 
+# Author: Gabor Szelcsanyi <szelcsanyi.gabor@gmail.com>
+#
+# License:  Freely distributable and licensed under the MIT license.
+# Copyright (c) 2014
+#
+# Requires: 
+#  - mysql client
+#  - ssh client
+#  - zabbix (www.zabbix.com) database access 
+#
+# rcmdr - Version: 1.0
 
-## Installation
-- Put rcmdr script into /usr/local/bin
-- chmod +x /usr/local/bin/rcmdr
-- Create mysql user with these permissions:
-<pre>
-GRANT USAGE ON *.* TO 'rcmdr'@'%' IDENTIFIED BY 'secretpassword'
-GRANT SELECT ON 'zabbix'.'hosts_groups' TO 'rcmdr'@'%'
-GRANT SELECT ON 'zabbix'.'hosts' TO 'rcmdr'@'%'
-GRANT SELECT ON 'zabbix'.'groups' TO 'rcmdr'@'%'
-</pre>
-- Set up these variables
-<pre>
-ZABBIX_HOST="" # Database host
-ZABBIX_DB="zabbix" # Database name
-ZABBIX_USER="rcmdr" # Database user name
-ZABBIX_PW="" # Database user password
-</pre>
 
-## Usage
-<pre>
-Usage: rcmdr --pool=WEB|DB... --host='host1[ host2 host3]' --excludepool=MEMCACHE... --excludehost='host1[ host2 host3]' --delay=sec [--parallel] [--parallelcount|--pcount] [--waitafterfirst|--waf] [--help] [--test] --command='hostname -f'
+# Zabbix database access configuration
+# Create mysql user with these permissions:
+#  GRANT USAGE ON *.* TO 'rcmdr'@'%' IDENTIFIED BY 'secretpassword'
+#  GRANT SELECT ON `zabbix`.`hosts_groups` TO 'rcmdr'@'%'
+#  GRANT SELECT ON `zabbix`.`hosts` TO 'rcmdr'@'%'
+#  GRANT SELECT ON `zabbix`.`groups` TO 'rcmdr'@'%'
+
+# Database host
+ZABBIX_HOST=""
+# Database name
+ZABBIX_DB="zabbix"
+# Database user name
+ZABBIX_USER="rcmdr"
+# Database user password
+ZABBIX_PW=""
+
+# Variables
+hosts=""
+excludeHosts=""
+command=""
+parallel=""
+waitaf=""
+nocolor=""
+user=""
+
+#-------------------------------------------------------------#
+function log {
+    if [ "$nocolor" == "true" ]; then
+        echo -e "[`date +'%Y.%m.%d %H:%M:%S'`] $@"
+    else
+        echo -e "\e[33;1m[`date +'%Y.%m.%d %H:%M:%S'`]\e[m $@"
+    fi
+}
+#-------------------------------------------------------------#
+function usage {
+    echo "Usage: $0 --pool=WEB|DB... --host='host1[ host2 host3]' --excludepool=MEMCACHE... --excludehost='host1[ host2 host3]' --delay=sec [--parallel] [--parallelcount|--pcount] [--waitafterfirst|--waf] [--help] [--test] --command='hostname -f'
 
 Description:
  --pool:              Destination target pool
@@ -52,18 +75,233 @@ Description:
  --help:              This help screen
  --command:           Execute specified command
  --user:              Username for ssh connection (default: root)
- example: rcmdr --pool=WEB --command='date'"
-</pre>
+ example: $(basename $0) --pool=WEB --command='date'"
+}
+#-------------------------------------------------------------#
+# selects the destination/excluded hosts in pool from DB
+function getHosts {
+    pool="$1"
+    var="$2"
+    sql="select distinct host from hosts join hosts_groups on hosts_groups.hostid = hosts.hostid join groups on groups.groupid = hosts_groups.groupid where status = 0 and groups.name='$pool' order by host;"
+    eval $var='$(mysql -h'$ZABBIX_HOST' -u'$ZABBIX_USER' -p'$ZABBIX_PW' -ss -e "'$sql'" '$ZABBIX_DB' 2>/dev/null)'
+    if [ $? != 0 ]; then
+        log "Database connection error!"
+    fi
+}
+#-------------------------------------------------------------#
+function execCommand {
+    hostNames="$1"
+    command="$2"
+    delay="$3"
+    parallel="$4"
+    waitaf="$5"
+    pcount="$6"
+    excludedHosts="$7"
 
-## Contributing
+    for i in $excludedHosts; do
+        hostNames=$( echo $hostNames | tr ' ' '\n' | sed "s/^$i//g" )
+    done
+    
+    hostNames=($hostNames)
+    
+    hostNum=${#hostNames[@]}
+    if [ -z "$pcount" ]; then
+        pcount=$hostNum
+    fi
 
-1. Fork it
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Added some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create new Pull Request
+    failed_hosts=""
+    #lastHost=${1##*$'\n'}
+    lastHost=${hostNames[(( ${hostNum} -1 ))]}
+    currentPos=0
+    
+    while [ "$currentPos" -lt "$hostNum" ]; do
+        destinationHosts=""
+        hostTable=()
+        pids=""
+        for (( i=0;i<$pcount;i++ )); do
+            destinationHosts="$destinationHosts ${hostNames[(( ${currentPos} + ${i} ))]}"
+        done
+        currentPos=$(( $currentPos + $i ))
+        for host in $destinationHosts
+        do
+            if [ "$nocolor" == "true" ]; then
+                log "<host $host>"
+            else
+                log "<host \e[32;1m$host\e[m>"
+            fi
 
-## License
+            if [ "$parallel" == "true" ]; then
+                log "Parallel mode"
+                rsh -q -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -l $user $host $command &
+                pid=$!
+                pids="$pids $pid"
+                hostTable[$pid]="$host"
+            else
+                rsh -q -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -l $user $host $command
+                if [ "$?" -ne 0 ]
+                then
+                failed_hosts="$failed_hosts $host"
+                fi
+            fi
+            log "</host>"
 
-* Freely distributable and licensed under the [MIT license](http://szelcsanyi.mit-license.org/2014/license.html).
-* Copyright (c) 2014 Gabor Szelcsanyi
+            if [ "$waitaf" == "true" ]; then
+                read -p "Press Enter to continue" -s
+                waitaf="false"
+                echo
+            fi
+            if [ "$delay" -gt 0 ] && [ "$host" != "$lastHost" ]; then
+                echo "Sleeping for $delay sec"
+                for d in $(seq 0 $delay); do
+                    echo -n "."
+                    sleep 1
+                done
+                echo
+            fi
+        done
+        
+        # check background processes' exit codes
+        if [ "$parallel" = "true" ]; then
+        for i in $pids
+        do
+            wait $i
+            if [ "$?" -ne 0 ]; then
+            failed_hosts="$failed_hosts ${hostTable[$i]}"
+            fi
+        done
+        fi
+
+    done
+
+    if [ "$failed_hosts" != "" ]; then
+        log "Command failed on hosts: \e[31;1m$failed_hosts\e[m"
+    fi
+}
+#-------------------------------------------------------------#
+parametercount=$#
+until [[ ! "$*" ]]; do
+    if [[ ${1:0:2} = '--' ]]; then
+    PAIR=${1:2}
+    PARAMETER=$(echo ${PAIR%%=*} | tr [:lower:] [:upper:])
+    case $PARAMETER in
+    PARALEL|PARALELL)
+        eval P_PARALLEL='${PAIR#*=}'
+        ;;
+    PARALELCOUNT|PARALELLCOUNT|PARALEL-COUNT|PARALELL-COUNT|PARALLEL-COUNT)
+        eval P_PARALLELCOUNT='${PAIR#*=}'
+        ;;
+    POOL|HOST|EXCLUDEPOOL|EXCLUDEHOST|DELAY|PARALLEL|COMMAND|WAITAFTERFIRST|WAF|PARALLELCOUNT|PCOUNT|NOCOLOR|TEST|HELP|USER)
+        eval P_$PARAMETER='${PAIR#*=}'
+        ;;
+    *)
+        BADPARAM=$BADPARAM" --"$PAIR
+        ;;
+    esac
+    fi
+    shift
+done
+
+if [ "$BADPARAM" ]
+then
+    usage
+    echo 
+    echo "Unknown parameter: "${BADPARAM}
+    exit 1
+fi
+#-------------------------------------------------------------#
+if [ "$P_HELP" ]
+then
+    usage
+    exit 0
+fi
+
+if [ "$P_NOCOLOR" ]; then
+    nocolor="true"
+else
+    nocolor="false"
+fi
+
+if [[ "$parametercount" -lt 2  || ( -z "$P_POOL"  &&  -z "$P_HOST" ) ]]
+then
+    log "Not enough parameter! $parametercount"
+    usage
+    exit 1
+fi
+#-------------------------------------------------------------#
+
+if [ "$P_TEST" ]; then
+    command="$command date; hostname -f; "
+fi
+
+if [ "$P_COMMAND" ]; then
+    command="$command $P_COMMAND"
+fi
+
+if [ "$P_PARALLEL" ]; then
+    parallel="true"
+else
+    parallel="false"
+fi
+
+if [ "$P_USER" ]; then
+    user="$P_USER"
+else
+    user="root"
+fi
+
+if [ "$P_WAITAFTERFIRST" ] || [ "$P_WAF" ]; then
+    waitaf="true"
+else
+    waitaf="false"
+fi
+
+if [ "$P_PARALLELCOUNT" ]; then
+    pcount="$P_PARALLELCOUNT"
+elif [ "$P_PCOUNT" ]; then 
+    pcount="$P_PCOUNT"
+else
+    pcount=""
+fi
+
+if [ "$P_POOL" ]; then
+    getHosts "$P_POOL" hosts
+fi
+hosts="$hosts $( echo $P_HOST | tr ',' ' ')"
+
+if [[ -z "$hosts" ]] || [[ "$hosts" == ' ' ]]; then
+    log "No host definition found!"
+    exit 1
+fi
+
+if [ "$P_EXCLUDEPOOL" ]; then
+    getHosts "$P_EXCLUDEPOOL" excludeHosts
+fi
+excludeHosts="$excludeHosts $( echo $P_EXCLUDEHOST | tr ',' ' ')"
+
+if [ -z "$command" ]; then
+    log "No command to execute!"
+    exit 1
+fi
+
+delay=$( echo $P_DELAY | sed 's/[^0-9]//g' )
+if [[ -z "$delay" ]] && [[ $parallel=="true" ]]; then
+    delay="15"
+fi
+
+log "Command to execute:\n" $command
+log "Destination hosts:\n"  $hosts
+log "Excluded hosts:\n" $excludeHosts
+log "Delay: $delay"
+log "Parallel: $parallel (step: $pcount)"
+log "User: $user"
+
+read -p "Press 'y' to continue!" -s -n 1 answer
+echo
+
+if [ "$answer" != "y" ]; then
+    log "Bye!"
+    exit 0
+fi
+
+execCommand "$hosts" "$command" "$delay" "$parallel" "$waitaf" "$pcount" "$excludeHosts"
+#------------------------------------------------------------

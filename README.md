@@ -1,4 +1,4 @@
-![image](https://raw.githubusercontent.com/szelcsanyi/remote-commander/master/commander.png) Remote-commander
+Remote-commander
 ================
 
 ## Description
@@ -20,6 +20,13 @@ GRANT USAGE ON *.* TO 'rcmdr'@'%' IDENTIFIED BY 'secretpassword'
 GRANT SELECT ON 'zabbix'.'hosts_groups' TO 'rcmdr'@'%'
 GRANT SELECT ON 'zabbix'.'hosts' TO 'rcmdr'@'%'
 GRANT SELECT ON 'zabbix'.'groups' TO 'rcmdr'@'%'
+</pre>
+- Set up these variables
+<pre>
+ZABBIX_HOST="" # Database host
+ZABBIX_DB="zabbix" # Database name
+ZABBIX_USER="rcmdr" # Database user name
+ZABBIX_PW="" # Database user password
 </pre>
 
 ## Usage
@@ -60,4 +67,3 @@ Description:
 
 * Freely distributable and licensed under the [MIT license](http://szelcsanyi.mit-license.org/2014/license.html).
 * Copyright (c) 2014 Gabor Szelcsanyi
-
