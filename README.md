@@ -52,6 +52,9 @@ Description:
  --help:              This help screen
  --command:           Execute specified command
  --user:              Username for ssh connection (default: root)
+ --silent:            Be less verbose. Start command execution immediately
+ --jumphost:          Ssh jumphost. Connect destinaiton host via this host
+ --jumphostuser:      Username for jumphost ssh connection
  example: rcmdr --pool=WEB --command='date'"
 </pre>
 

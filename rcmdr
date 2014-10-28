@@ -16,7 +16,12 @@
 #  - ssh client
 #  - zabbix (www.zabbix.com) database access 
 #
-# rcmdr - Version: 1.0
+# rcmdr - Version: 1.1
+
+# Changelog
+# 2014.10.28
+#  - ssh jumphost added
+#  - silent mode added
 
 
 # Zabbix database access configuration
@@ -43,6 +48,9 @@ parallel=""
 waitaf=""
 nocolor=""
 user=""
+silent=""
+jumphost=""
+jpuser=""
 
 #-------------------------------------------------------------#
 function log {
@@ -54,7 +62,10 @@ function log {
 }
 #-------------------------------------------------------------#
 function usage {
-    echo "Usage: $0 --pool=WEB|DB... --host='host1[ host2 host3]' --excludepool=MEMCACHE... --excludehost='host1[ host2 host3]' --delay=sec [--parallel] [--parallelcount|--pcount] [--waitafterfirst|--waf] [--help] [--test] --command='hostname -f'
+    echo "Usage: $0 --pool=WEB|DB... --host='host1[ host2 host3]' 
+--excludepool=MEMCACHE... --excludehost='host1[ host2 host3]' --delay=sec 
+[--parallel] [--parallelcount|--pcount] [--waitafterfirst|--waf] [--help] 
+[--test] --command='hostname -f'
 
 Description:
  --pool:              Destination target pool
@@ -75,6 +86,9 @@ Description:
  --help:              This help screen
  --command:           Execute specified command
  --user:              Username for ssh connection (default: root)
+ --silent:            Be less verbose. Start command execution immediately
+ --jumphost:          Ssh jumphost. Connect destinaiton host via this host
+ --jumphostuser:      Username for jumphost ssh connection
  example: $(basename $0) --pool=WEB --command='date'"
 }
 #-------------------------------------------------------------#
@@ -110,7 +124,6 @@ function execCommand {
     fi
 
     failed_hosts=""
-    #lastHost=${1##*$'\n'}
     lastHost=${hostNames[(( ${hostNum} -1 ))]}
     currentPos=0
     
@@ -132,12 +145,12 @@ function execCommand {
 
             if [ "$parallel" == "true" ]; then
                 log "Parallel mode"
-                rsh -q -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -l $user $host $command &
+                rsh -q -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -oProxyCommand="$jumphost" -l $user $host $command &
                 pid=$!
                 pids="$pids $pid"
                 hostTable[$pid]="$host"
             else
-                rsh -q -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -l $user $host $command
+                rsh -q -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -oProxyCommand="$jumphost" -l $user $host $command
                 if [ "$?" -ne 0 ]
                 then
                 failed_hosts="$failed_hosts $host"
@@ -159,7 +172,7 @@ function execCommand {
                 echo
             fi
         done
-        
+
         # check background processes' exit codes
         if [ "$parallel" = "true" ]; then
         for i in $pids
@@ -174,7 +187,11 @@ function execCommand {
     done
 
     if [ "$failed_hosts" != "" ]; then
-        log "Command failed on hosts: \e[31;1m$failed_hosts\e[m"
+        if [ "$nocolor" == "true" ]; then
+            log "Command failed on hosts: \e[31;1m$failed_hosts\e[m"
+        else
+            log "Command failed on hosts: $failed_hosts"
+        fi
     fi
 }
 #-------------------------------------------------------------#
@@ -190,7 +207,7 @@ until [[ ! "$*" ]]; do
     PARALELCOUNT|PARALELLCOUNT|PARALEL-COUNT|PARALELL-COUNT|PARALLEL-COUNT)
         eval P_PARALLELCOUNT='${PAIR#*=}'
         ;;
-    POOL|HOST|EXCLUDEPOOL|EXCLUDEHOST|DELAY|PARALLEL|COMMAND|WAITAFTERFIRST|WAF|PARALLELCOUNT|PCOUNT|NOCOLOR|TEST|HELP|USER)
+    POOL|HOST|EXCLUDEPOOL|EXCLUDEHOST|DELAY|PARALLEL|COMMAND|WAITAFTERFIRST|WAF|PARALLELCOUNT|PCOUNT|NOCOLOR|TEST|HELP|USER|SILENT|JUMPHOST|JUMPHOSTUSER)
         eval P_$PARAMETER='${PAIR#*=}'
         ;;
     *)
@@ -249,6 +266,12 @@ else
     user="root"
 fi
 
+if [ "$P_JUMPHOSTUSER" ]; then
+    jpuser="$P_JUMPHOSTUSER"
+else
+    jpuser="root"
+fi
+
 if [ "$P_WAITAFTERFIRST" ] || [ "$P_WAF" ]; then
     waitaf="true"
 else
@@ -288,19 +311,36 @@ if [[ -z "$delay" ]] && [[ $parallel=="true" ]]; then
     delay="15"
 fi
 
-log "Command to execute:\n" $command
-log "Destination hosts:\n"  $hosts
-log "Excluded hosts:\n" $excludeHosts
-log "Delay: $delay"
-log "Parallel: $parallel (step: $pcount)"
-log "User: $user"
+if [ "$P_SILENT" ]; then
+    silent="true"
+else
+    silent="false"
+fi
 
-read -p "Press 'y' to continue!" -s -n 1 answer
-echo
+if [ "$P_JUMPHOST" ]; then
+    jumphost="ssh -q $P_JUMPHOST -l $jpuser -A netcat -w 30 %h %p"
+else
+    jumphost=""
+fi
 
-if [ "$answer" != "y" ]; then
-    log "Bye!"
-    exit 0
+if [ "$silent" == "false" ]; then
+    log "Command to execute:\n" $command
+    log "Destination hosts:\n"  $hosts
+    log "Excluded hosts:\n" $excludeHosts
+    log "Delay: $delay"
+    log "Parallel: $parallel (step: $pcount)"
+    log "User: $user"
+    if [ ! -z $P_JUMPHOST ]; then
+        log "Jumphost: $P_JUMPHOST"
+    fi
+
+    read -p "Press 'y' to continue!" -s -n 1 answer
+    echo
+
+    if [ "$answer" != "y" ]; then
+        log "Bye!"
+        exit 0
+    fi
 fi
 
 execCommand "$hosts" "$command" "$delay" "$parallel" "$waitaf" "$pcount" "$excludeHosts"
