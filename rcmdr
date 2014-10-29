@@ -320,7 +320,7 @@ fi
 if [ "$P_JUMPHOST" ]; then
     jumphost="ssh -q $P_JUMPHOST -l $jpuser -A netcat -w 30 %h %p"
 else
-    jumphost=""
+    jumphost="none"
 fi
 
 if [ "$silent" == "false" ]; then
