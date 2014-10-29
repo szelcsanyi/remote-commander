@@ -77,10 +77,10 @@ Description:
                        'app1.mydomain.com app2.mydomain.com'
  --delay:             Delay between command execution on hosts
  --parallel:          Do the job in parallel on hosts
+ --parallelcount:     Parallel execution concurrency if --parallel is set
+ --pcount:            Short form of --parallelcount
  --waitafterfirst:    Pause after command execution on first host
  --waf:               Short form of --waitafterfirst
- --parallelcount:     How many parallel execution at the time
- --pcount:            Short form of --parallel-count
  --nocolor:           Do not color output messages
  --test:              Execute hostname -f and date
  --help:              This help screen
