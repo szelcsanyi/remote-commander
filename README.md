@@ -70,3 +70,6 @@ Description:
 
 * Freely distributable and licensed under the [MIT license](http://szelcsanyi.mit-license.org/2014/license.html).
 * Copyright (c) 2014 Gabor Szelcsanyi
+
+[![image](https://ga-beacon.appspot.com/UA-56493884-1/remote-commander/README.md)](https://github.com/szelcsanyi/remote-commander)
+
