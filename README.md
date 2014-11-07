@@ -1,4 +1,4 @@
-![image](https://raw.githubusercontent.com/szelcsanyi/remote-commander/master/commander.png) Remote-commander
+![image](https://raw.githubusercontent.com/szelcsanyi/assets/master/remote-commander/commander.png) Remote-commander
 ================
 
 ## Description
